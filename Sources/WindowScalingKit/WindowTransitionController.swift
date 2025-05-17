@@ -216,18 +216,6 @@ public final class WindowTransitionController: Sendable {
         }
     }
 
-    /// Transforms a specific window according to the provided transition instruction.
-    ///
-    /// This method provides the same functionality as `transformRectOfFocusedWindow` but allows
-    /// specifying a particular window to transform.
-    ///
-    /// - Parameters:
-    ///   - window: The window to transform
-    ///   - instruction: The transition instruction to apply
-    @MainActor
-    public func transformRect(ofWindow window: AXWindow, withInstruction instruction: WindowTransition) async {
-        // ... existing code ...
-    }
 }
 
 public extension WindowTransitionController {
