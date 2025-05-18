@@ -49,7 +49,6 @@ private extension CGRect {
 
 public extension WindowContainer where Self.This == Self {
     /// Returns edges of all windows as relative coordinates (values between 0 and 100)
-    @MainActor
     func visibleEdges(on axes: WindowAxis) -> Set<WindowTransitionBreakpoints.Value> {
         guard let screenHeight = Self.screens.first?.frame.height,
               let activeWindow = try? AXWindow.focusedWindow()?.getFrame() else {
@@ -74,10 +73,11 @@ public extension WindowContainer where Self.This == Self {
                     window.bounds.height > commonTooltipHeight else {
                     return nil
                 }
-                return screenRect.intersects(window.bounds) && window.windowLayer == 0
+                return screenRect.intersects(window.bounds)
                     ? window
                     : nil
             }
+        let activeWindowCoordinates = WindowCoordinates(ofWindowFrame: activeWindow, onScreen: self)
         var results = Set<WindowTransitionBreakpoints.Value>()
         var visibleRects = [CGRect]()
         windowFrameLoop: for frame in cgWindowListFrames {
@@ -93,7 +93,6 @@ public extension WindowContainer where Self.This == Self {
             
             for visibleRect in currentVisibleRects {
                 let visibleCoordinates = WindowCoordinates(ofWindowFrame: visibleRect, onScreen: self)
-                let activeWindowCoordinates = WindowCoordinates(ofWindowFrame: activeWindow, onScreen: self)
                 if activeWindowCoordinates == visibleCoordinates {
                     continue
                 }

@@ -23,7 +23,6 @@ public struct CGWindowInfo: CustomStringConvertible, Sendable {
         return result
     }
 
-    @MainActor
     public init?(dictionary: [String: Any]) {
         guard
             let windowNumber = dictionary[kCGWindowNumber as String] as? Int,
@@ -58,7 +57,6 @@ public struct CGWindowInfo: CustomStringConvertible, Sendable {
         bounds.minY == 0 && windowLayer == 25
     }
 
-    @MainActor
     public static func from(_: CGWindowListOption, _: CGWindowID) -> [CGWindowInfo] {
         let cgWindows = (CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
