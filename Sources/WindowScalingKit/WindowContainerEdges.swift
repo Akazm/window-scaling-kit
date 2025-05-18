@@ -2,14 +2,48 @@ import AppKit
 import AXKit
 
 private extension CGRect {
-    func subtracting(_ other: CGRect) -> CGRect {
-        if other.contains(self) {
-            return .null
-        } else if intersects(other) {
-            return divided(atDistance: other.height, from: .minYEdge).slice
-        } else {
-            return self
+    func subtracting(_ other: CGRect) -> [CGRect] {
+        guard intersects(other) else { return [self] }
+        
+        var result: [CGRect] = []
+        
+        // Left slice
+        if minX < other.minX {
+            result.append(CGRect(x: minX, y: minY, width: other.minX - minX, height: height))
         }
+        
+        // Right slice
+        if maxX > other.maxX {
+            result.append(CGRect(x: other.maxX, y: minY, width: maxX - other.maxX, height: height))
+        }
+        
+        // Top slice
+        if maxY > other.maxY {
+            let topRect = CGRect(
+                x: max(minX, other.minX),
+                y: other.maxY,
+                width: min(maxX, other.maxX) - max(minX, other.minX),
+                height: maxY - other.maxY
+            )
+            if !topRect.isEmpty {
+                result.append(topRect)
+            }
+        }
+        
+        // Bottom slice
+        if minY < other.minY {
+            let bottomRect = CGRect(
+                x: max(minX, other.minX),
+                y: minY,
+                width: min(maxX, other.maxX) - max(minX, other.minX),
+                height: other.minY - minY
+            )
+            if !bottomRect.isEmpty {
+                result.append(bottomRect)
+            }
+        }
+        
+        return result
     }
 }
 
@@ -47,26 +81,30 @@ public extension WindowContainer where Self.This == Self {
         var results = Set<WindowTransitionBreakpoints.Value>()
         var visibleRects = [CGRect]()
         windowFrameLoop: for frame in cgWindowListFrames {
-            let windowCoordinates = WindowCoordinates(ofWindowFrame: frame.bounds, onScreen: self)
-            let activeWindowCoordinates = WindowCoordinates(ofWindowFrame: activeWindow, onScreen: self)
-            if activeWindowCoordinates == windowCoordinates {
-                continue
-            }
-            var visibleRect = frame.bounds
+            var currentVisibleRects = [frame.bounds]
             for rect in visibleRects {
-                visibleRect = visibleRect.subtracting(rect)
-                if visibleRect.isEmpty {
+                currentVisibleRects = currentVisibleRects.flatMap { $0.subtracting(rect) }
+                if currentVisibleRects.isEmpty {
                     continue windowFrameLoop
                 }
             }
+            
             visibleRects.append(frame.bounds)
-            if axes.contains(.horizontal) {
-                results.insert(.x(windowCoordinates.x, meta: ["windowInfo": frame]))
-                results.insert(.x(windowCoordinates.maxX, meta: ["windowInfo": frame]))
-            }
-            if axes.contains(.vertical) {
-                results.insert(.y(windowCoordinates.y, meta: ["windowInfo": frame]))
-                results.insert(.y(windowCoordinates.maxY, meta: ["windowInfo": frame]))
+            
+            for visibleRect in currentVisibleRects {
+                let visibleCoordinates = WindowCoordinates(ofWindowFrame: visibleRect, onScreen: self)
+                let activeWindowCoordinates = WindowCoordinates(ofWindowFrame: activeWindow, onScreen: self)
+                if activeWindowCoordinates == visibleCoordinates {
+                    continue
+                }
+                if axes.contains(.horizontal) {
+                    results.insert(.x(visibleCoordinates.x, meta: ["windowInfo": frame]))
+                    results.insert(.x(visibleCoordinates.maxX, meta: ["windowInfo": frame]))
+                }
+                if axes.contains(.vertical) {
+                    results.insert(.y(visibleCoordinates.y, meta: ["windowInfo": frame]))
+                    results.insert(.y(visibleCoordinates.maxY, meta: ["windowInfo": frame]))
+                }
             }
         }
         return results
