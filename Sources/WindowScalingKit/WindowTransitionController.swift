@@ -33,7 +33,7 @@ public final class WindowTransitionController: Sendable {
         let startWidth = frame.size.width
         let startHeight = frame.size.height
         let invocationsInterval = 1.0 / 240.0
-        let timer = AsyncTimerSequence(withTimeInterval: invocationsInterval, repeats: true)
+        let timer = Timer.scheduledTimerSequence(withTimeInterval: invocationsInterval, repeats: true)
             .map { _ in
                 var timebaseInfo = mach_timebase_info()
                 mach_timebase_info(&timebaseInfo)
