@@ -1,13 +1,13 @@
 {
-  "originHash" : "58ce141758da47ed724f210ebe1f3050ae6a2c078102558ac444f253888aad54",
+  "originHash" : "35905b8934b4fd754cc19d62d5ef02c1149749f3e406b96086e5d5473417e882",
   "pins" : [
     {
       "identity" : "ax-kit",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Akazm/ax-kit",
       "state" : {
-        "revision" : "228129fe7d54a8798d34dfffeb86561c4d3d49fc",
-        "version" : "1.0.0"
+        "revision" : "92096e6928d3474a6e6546241d2e3575495ec361",
+        "version" : "1.2.0"
       }
     },
     {

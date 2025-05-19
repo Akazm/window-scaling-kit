@@ -296,21 +296,6 @@ private func easeInOutQuad(_ t: CGFloat) -> CGFloat {
     return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
 }
 
-private extension AXElement {
-    var application: GenericAXElement? {
-        if (try? role()) == AXKit.Role.application {
-            return GenericAXElement(element)
-        }
-        let parent = try? attribute(Attribute.parent, as: GenericAXElement.self)
-        return parent?.application
-    }
-
-    func isEnhancedUserInterfaceEnabled() -> Bool {
-        let value: Bool = (try? attribute(Attribute.enhancedUserInterface)) ?? false
-        return value
-    }
-}
-
 private extension Task where Success == Never, Failure == Never {
     static func sleep(seconds: Double) async throws {
         let duration = UInt64(seconds * 1_000_000_000)

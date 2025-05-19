@@ -13,7 +13,7 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/Akazm/ax-kit", .upToNextMajor(from: "1.0.0")),
+        .package(url: "https://github.com/Akazm/ax-kit", .upToNextMajor(from: "1.2.0")),
         .package(url: "https://github.com/nicklockwood/SwiftFormat", .upToNextMajor(from: "0.55.0")),
         .package(url: "https://github.com/swhitty/swift-mutex", .upToNextMajor(from: "0.0.5")),
         .package(url: "https://github.com/apple/swift-atomics.git", .upToNextMajor(from: "1.2.0")),
