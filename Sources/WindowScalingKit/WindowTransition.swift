@@ -117,7 +117,7 @@ extension WindowTransition: CustomDebugStringConvertible {
 ///   - screen: The screen or display the window is currently on. Must conform to `WindowContainer`.
 ///   - currentFrame: The current frame (`CGRect`) of the window before applying the transition.
 ///
-/// - Returns: A new `CGRect` representing the window’s frame after the transition, or `nil`
+/// - Returns: A new `CGRect` representing the window's frame after the transition, or `nil`
 ///   if the transition cannot be resolved.
 ///
 /// - Note:

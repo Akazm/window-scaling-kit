@@ -229,8 +229,8 @@ public extension WindowTransitionController {
         /// Controls when window animations should be disabled.
         ///
         /// - `whenOnBattery`: Disables animations when the device is running on battery power
-        /// - `enabled`: Always disables animations
-        /// - `disabled`: Always enables animations
+        /// - `enabled`: Always enables animations
+        /// - `disabled`: Always disables animations
         /// - `auto`: Automatically determines whether to disable animations based on system settings
         public enum DisableAnimation: Sendable {
             case whenOnBattery
