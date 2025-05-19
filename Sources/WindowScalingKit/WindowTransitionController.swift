@@ -156,28 +156,6 @@ public final class WindowTransitionController: Sendable {
             default:
                 inboundInstruction
         }
-        let isAnimationDisabled = switch shouldDisableAnimations {
-            case .enabled:
-                if case .moveToScreen = instruction {
-                    false
-                } else {
-                    true
-                }
-            case .whenOnBattery:
-                if case .moveToScreen = instruction {
-                    false
-                } else {
-                    isRunningOnBattery()
-                }
-            case .disabled:
-                false
-            case .auto:
-                if case .moveToScreen = instruction {
-                    false
-                } else {
-                    isRunningOnBattery() || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-                }
-        }
         guard
             let newTargetFrame = instruction.rect(onScreen: screen, from: initialFrame),
             newTargetFrame != initialFrame
@@ -204,7 +182,7 @@ public final class WindowTransitionController: Sendable {
                 onScreen: screen,
                 withFrame: initialFrame,
                 transformation: instruction,
-                animationDuration: isAnimationDisabled ? nil : 0.1163
+                animationDuration: shouldDisableAnimations.evaluateAnimationDuration()
             )
             targetFrame.withLock { $0 = nil }
             if window.application != nil, isEnhancedUserInterfaceEnabled {
@@ -232,11 +210,11 @@ public extension WindowTransitionController {
         /// - `enabled`: Always enables animations
         /// - `disabled`: Always disables animations
         /// - `auto`: Automatically determines whether to disable animations based on system settings
-        public enum DisableAnimation: Sendable {
-            case whenOnBattery
-            case enabled
+        public enum DisableAnimation: Sendable, Hashable {
+            case whenOnBattery(TimeInterval)
+            case enabled(TimeInterval)
             case disabled
-            case auto
+            case auto(TimeInterval)
         }
         
         /// The tolerance value for grid snapping, represented as a decimal between 0 and 1.
@@ -269,27 +247,46 @@ public extension WindowTransitionController {
         /// The default configuration with reasonable values for most use cases.
         public static let `default`: Self = .init(
             gridTolerance: 0.2,
-            disableAnimations: .auto,
+            disableAnimations: .auto(0.1163),
             enableContextAwareGrid: true
         )
     }
 }
 
-private func isRunningOnBattery() -> Bool {
-    guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-          let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef]
-    else {
+public extension WindowTransitionController.Config.DisableAnimation {
+    
+    static func isRunningOnBattery() -> Bool {
+        guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef]
+        else {
+            return false
+        }
+
+        for source in sources {
+            if let info = IOPSGetPowerSourceDescription(blob, source)?.takeUnretainedValue() as? [String: Any],
+               let powerSource = info[kIOPSPowerSourceStateKey] as? String {
+                return powerSource == kIOPSBatteryPowerValue
+            }
+        }
+
         return false
     }
-
-    for source in sources {
-        if let info = IOPSGetPowerSourceDescription(blob, source)?.takeUnretainedValue() as? [String: Any],
-           let powerSource = info[kIOPSPowerSourceStateKey] as? String {
-            return powerSource == kIOPSBatteryPowerValue
+    
+    func evaluateAnimationDuration() -> TimeInterval? {
+        switch self {
+            case .enabled(let timeInterval):
+                timeInterval
+            case .whenOnBattery(let timeInterval):
+                Self.isRunningOnBattery() ? nil : timeInterval
+            case .disabled:
+                nil
+            case .auto(let timeInterval):
+                Self.isRunningOnBattery() || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                    ? nil
+                    : timeInterval
         }
     }
-
-    return false
+    
 }
 
 private func easeInOutQuad(_ t: CGFloat) -> CGFloat {
