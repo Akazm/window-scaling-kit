@@ -17,7 +17,7 @@ extension NSScreen: WindowContainer {
         }
     }
 
-    @MainActor public static var activeScreen: NSScreen? {
+    public static var activeScreen: NSScreen? {
         guard
             let frontmost = try? AXWindow.focusedWindow(),
             let rect = try? frontmost.getFrame()

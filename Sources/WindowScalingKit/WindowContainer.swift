@@ -7,7 +7,7 @@ public protocol WindowContainer: Hashable {
     /// *Tricks* the compiler into allowing non-final `Self` return types. Extensions should therefore always be constrained to `This == Self`.
     associatedtype This = Self where This: WindowContainer, This: Hashable
     /// The screen with the current frontmost window
-    @MainActor static var activeScreen: This? { get }
+    static var activeScreen: This? { get }
     /// See: [screens](https://developer.apple.com/documentation/appkit/nsscreen/1388393-screens)
     static var screens: [This] { get }
     /// See: [main](https://developer.apple.com/documentation/appkit/nsscreen/1388371-main)

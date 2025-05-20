@@ -14,9 +14,14 @@ import Mutex
 /// snapping. It uses accessibility APIs to manipulate windows and provides smooth animations
 /// with easing functions.
 public final class WindowTransitionController: Sendable {
-
-    private let targetFrame: Mutex<CGRect?> = .init(nil)
-    private let isResizingTaskRunning = ManagedAtomic<Bool>(false)
+    private struct State {
+        var targetFrame: CGRect?
+        var nextTransitionFrame: CGRect?
+    }
+    
+    private let state: Mutex<State> = .init(.init())
+    private let transitionQueue: Mutex<[WindowTransition]> = .init([])
+    private let isProcessingTransitions = ManagedAtomic<Bool>(false)
     public let config: Mutex<Config>
     
     public init(config: Config = .default) {
@@ -24,76 +29,62 @@ public final class WindowTransitionController: Sendable {
     }
 
     private nonisolated func transform(
-        window: AXWindow, onScreen screen: NSScreen, withFrame frame: CGRect, transformation: WindowTransition,
+        window: AXWindow,
+        withFrame frame: CGRect,
         animationDuration duration: TimeInterval?
     ) async throws {
-        var absoluteStart: UInt64?
-        let startX = frame.origin.x
-        let startY = frame.origin.y
-        let startWidth = frame.size.width
-        let startHeight = frame.size.height
-        let invocationsInterval = 1.0 / 240.0
-        let timer = Timer.scheduledTimerSequence(withTimeInterval: invocationsInterval, repeats: true)
-            .map { _ in
-                var timebaseInfo = mach_timebase_info()
-                mach_timebase_info(&timebaseInfo)
-                return mach_absolute_time() * UInt64(timebaseInfo.numer) / UInt64(timebaseInfo.denom)
-            }
-            .pairwise()
-        if let duration {
-            for try await (start, end) in timer {
-                try Task.checkCancellation()
-                absoluteStart = if absoluteStart == nil {
-                    start
-                } else {
-                    absoluteStart
-                }
-                guard
-                    let absoluteStart,
-                    let targetFrame = self.targetFrame.withLock({ $0 })
-                else {
-                    continue
-                }
-                let deltaX = targetFrame.origin.x - startX
-                let deltaY = targetFrame.origin.y - startY
-                let deltaWidth = targetFrame.size.width - startWidth
-                let deltaHeight = targetFrame.size.height - startHeight
-                let elapsed = end - absoluteStart
-                let elapsedMilliseconds = Double(elapsed) / 1_000_000
-                let elapsedSeconds = elapsedMilliseconds / 1000.0
-                let progress = easeInOutQuad(min(elapsedSeconds / duration, 1.0))
-                let newX = startX + deltaX * progress
-                let newY = startY + deltaY * progress
-                let newWidth = startWidth + deltaWidth * progress
-                let newHeight = startHeight + deltaHeight * progress
-                try await MainActor.run {
-                    try Task.checkCancellation()
-                    try? window.setAttribute(Attribute.size, value: CGSize(width: newWidth, height: newHeight))
-                    try? window.setAttribute(Attribute.position, value: CGPoint(x: newX, y: newY))
-                }
-                if elapsedSeconds >= duration {
-                    try Task.checkCancellation()
-                    break
-                }
-            }
-        }
-        guard let targetFrame = targetFrame.withLock({ $0 }) else {
+        // Compute target frame upfront to avoid sending screen across actor boundaries
+        guard let targetFrame = state.withLock({ $0.targetFrame }) else {
             return
         }
-        var retries = 0
-        let maxRetries = 5
-        while
-            let newFrame = try? window.attribute(.frame, as: CGRect.self),
-            retries < maxRetries,
-            abs(newFrame.height - targetFrame.height) > 1 || abs(newFrame.width - targetFrame.width) > 1 {
-            try? await Task.sleep(seconds: 0.01)
-            try Task.checkCancellation()
+        guard let duration = duration else {
             try await MainActor.run {
                 try Task.checkCancellation()
-                try? window.set(size: targetFrame.size)
-                try? window.set(position: targetFrame.origin)
+                try? window.setAttribute(Attribute.size, value: targetFrame.size)
+                try? window.setAttribute(Attribute.position, value: targetFrame.origin)
             }
-            retries += 1
+            return
+        }
+        let startTime = CACurrentMediaTime()
+        while true {
+            try Task.checkCancellation()
+            let elapsedSeconds = CACurrentMediaTime() - startTime
+            let progress = min(elapsedSeconds / duration, 1.0)
+            let easedProgress = easeInOutCubic(progress)
+            let newX = frame.origin.x + (targetFrame.origin.x - frame.origin.x) * easedProgress
+            let newY = frame.origin.y + (targetFrame.origin.y - frame.origin.y) * easedProgress
+            let newWidth = frame.width + (targetFrame.width - frame.width) * easedProgress
+            let newHeight = frame.height + (targetFrame.height - frame.height) * easedProgress
+            state.withLock { $0.nextTransitionFrame = CGRect(x: newX, y: newY, width: newWidth, height: newHeight) }
+            try await MainActor.run {
+                try Task.checkCancellation()
+                try? window.setAttribute(Attribute.size, value: CGSize(width: newWidth, height: newHeight))
+                try? window.setAttribute(Attribute.position, value: CGPoint(x: newX, y: newY))
+            }
+            if progress >= 1.0 {
+                break
+            }
+            try await Task.sleep(seconds: 1.0 / 120.0)
+        }
+        // Ensure we reach the final position
+        try await MainActor.run {
+            try Task.checkCancellation()
+            try? window.setAttribute(Attribute.size, value: targetFrame.size)
+            try? window.setAttribute(Attribute.position, value: targetFrame.origin)
+        }
+    }
+    
+    /// Cancels any scheduled, animated transitions
+    public func cancel() {
+        transitionQueue.withLock { queue in
+            queue.removeAll()
+        }
+    }
+    
+    private func clearTransitionState() {
+        state.withLock { state in
+            state.targetFrame = nil
+            state.nextTransitionFrame = nil
         }
     }
 
@@ -108,189 +99,98 @@ public final class WindowTransitionController: Sendable {
     /// The transformation respects the controller's configuration settings for animations
     /// and grid snapping.
     ///
-    /// - Parameter inboundInstruction: The transition instruction to apply to the window
-    @MainActor
-    public func transformRectOfFocusedWindow(withInstruction inboundInstruction: WindowTransition) async {
-        guard
-            let window = try? AXWindow.focusedWindow(),
-            let screen = NSScreen.activeScreen
-        else {
-            return
+    /// - Parameter window: The window with the frame to transition
+    /// - Parameter transition: The transition instruction to apply to the window
+    public func transformRect(ofWindow window: AXWindow, withTransition transition: WindowTransition) async {
+        // Add the new transition to the queue
+        transitionQueue.withLock { queue in
+            queue.append(transition)
         }
-        let config = config.withLock { $0 }
-        let enableContextAwareGrid = config.enableContextAwareGrid
-        let gridTolerance = Proportion.percentual(config.gridTolerance)
-        let shouldDisableAnimations = config.disableAnimations
-        let initialFrame = targetFrame.withLock { $0 } ?? (try? window.getFrame()) ?? .zero
-        let instruction: WindowTransition = switch inboundInstruction {
-            case _ where !enableContextAwareGrid:
-                inboundInstruction
-            case let .moveLeft(breakpoints):
-                .moveLeft(breakpoints.merge(with: screen.visibleEdges(on: .horizontal)).with(tolerance: gridTolerance))
-            case let .moveRight(breakpoints):
-                .moveRight(breakpoints.merge(with: screen.visibleEdges(on: .horizontal)).with(tolerance: gridTolerance))
-            case let .moveUp(breakpoints):
-                .moveUp(breakpoints.merge(with: screen.visibleEdges(on: .vertical)).with(tolerance: gridTolerance))
-            case let .moveDown(breakpoints):
-                .moveDown(breakpoints.merge(with: screen.visibleEdges(on: .vertical)).with(tolerance: gridTolerance))
-            case let .resizeLeft(increaseOrDecrease, breakpoints):
-                .resizeLeft(
-                    increaseOrDecrease,
-                    breakpoints.merge(with: screen.visibleEdges(on: .horizontal)).with(tolerance: gridTolerance)
-                )
-            case let .resizeRight(increaseOrDecrease, breakpoints):
-                .resizeRight(
-                    increaseOrDecrease,
-                    breakpoints.merge(with: screen.visibleEdges(on: .horizontal)).with(tolerance: gridTolerance)
-                )
-            case let .resizeTop(increaseOrDecrease, breakpoints):
-                .resizeTop(
-                    increaseOrDecrease,
-                    breakpoints.merge(with: screen.visibleEdges(on: .vertical)).with(tolerance: gridTolerance)
-                )
-            case let .resizeBottom(increaseOrDecrease, breakpoints):
-                .resizeBottom(
-                    increaseOrDecrease,
-                    breakpoints.merge(with: screen.visibleEdges(on: .vertical)).with(tolerance: gridTolerance)
-                )
-            default:
-                inboundInstruction
-        }
-        guard
-            let newTargetFrame = instruction.rect(onScreen: screen, from: initialFrame),
-            newTargetFrame != initialFrame
-        else {
-            return
-        }
-        targetFrame.withLock { $0 = newTargetFrame }
-        if isResizingTaskRunning.load(ordering: .sequentiallyConsistent) {
+        guard !isProcessingTransitions.load(ordering: .sequentiallyConsistent) else {
             return
         }
         Task { [weak self] in
-            guard let self else {
-                return
+            guard let self else { return }
+            isProcessingTransitions.store(true, ordering: .relaxed)
+            defer {
+                clearTransitionState()
+                isProcessingTransitions.store(false, ordering: .relaxed)
             }
-            isResizingTaskRunning.store(true, ordering: .relaxed)
-            /// THX to Rectangle for pointing this out:
-            /// https://github.com/rxhanson/Rectangle/blob/master/Rectangle/AccessibilityElement.swift
-            let isEnhancedUserInterfaceEnabled = window.application?.isEnhancedUserInterfaceEnabled() ?? false
-            if window.application != nil, isEnhancedUserInterfaceEnabled {
-                try? window.application?.setAttribute(.enhancedUserInterface, value: kCFBooleanFalse as CFBoolean)
-            }
-            try? await transform(
-                window: window,
-                onScreen: screen,
-                withFrame: initialFrame,
-                transformation: instruction,
-                animationDuration: shouldDisableAnimations.evaluateAnimationDuration()
-            )
-            targetFrame.withLock { $0 = nil }
-            if window.application != nil, isEnhancedUserInterfaceEnabled {
-                await MainActor.run {
-                    try? window.application?.setAttribute(.enhancedUserInterface, value: kCFBooleanFalse as CFBoolean)
+            while let nextTransition = transitionQueue.withLock({ queue in
+                guard !queue.isEmpty else { return nil as WindowTransition? }
+                return queue.removeFirst()
+            }) {
+                guard let screen = NSScreen.activeScreen else {
+                    continue
                 }
-            }
-            isResizingTaskRunning.store(false, ordering: .relaxed)
-        }
-    }
-
-}
-
-public extension WindowTransitionController {
-    
-    /// Configuration options for the WindowTransitionController.
-    ///
-    /// This struct allows customization of the controller's behavior including grid tolerance,
-    /// animation settings, and context-aware grid snapping.
-    struct Config: Sendable, Hashable {
-        
-        /// Controls when window animations should be disabled.
-        ///
-        /// - `whenOnBattery`: Disables animations when the device is running on battery power
-        /// - `enabled`: Always enables animations
-        /// - `disabled`: Always disables animations
-        /// - `auto`: Automatically determines whether to disable animations based on system settings
-        public enum DisableAnimation: Sendable, Hashable {
-            case whenOnBattery(TimeInterval)
-            case enabled(TimeInterval)
-            case disabled
-            case auto(TimeInterval)
-        }
-        
-        /// The tolerance value for grid snapping, represented as a decimal between 0 and 1.
-        /// A higher value means windows will snap to grid positions more easily.
-        public let gridTolerance: Decimal
-        
-        /// Controls when window animations should be disabled.
-        public let disableAnimations: DisableAnimation
-        
-        /// When enabled, the grid snapping will take into account the visible edges of the screen
-        /// and other contextual information for more intelligent window positioning.
-        public let enableContextAwareGrid: Bool
-        
-        /// Creates a new configuration with the specified parameters.
-        ///
-        /// - Parameters:
-        ///   - gridTolerance: The tolerance value for grid snapping (0-1)
-        ///   - disableAnimations: When to disable window animations
-        ///   - enableContextAwareGrid: Whether to enable context-aware grid snapping
-        public init(
-            gridTolerance: Decimal,
-            disableAnimations: DisableAnimation,
-            enableContextAwareGrid: Bool
-        ) {
-            self.gridTolerance = gridTolerance
-            self.disableAnimations = disableAnimations
-            self.enableContextAwareGrid = enableContextAwareGrid
-        }
-        
-        /// The default configuration with reasonable values for most use cases.
-        public static let `default`: Self = .init(
-            gridTolerance: 0.2,
-            disableAnimations: .auto(0.1163),
-            enableContextAwareGrid: true
-        )
-    }
-}
-
-public extension WindowTransitionController.Config.DisableAnimation {
-    
-    static func isRunningOnBattery() -> Bool {
-        guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-              let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef]
-        else {
-            return false
-        }
-
-        for source in sources {
-            if let info = IOPSGetPowerSourceDescription(blob, source)?.takeUnretainedValue() as? [String: Any],
-               let powerSource = info[kIOPSPowerSourceStateKey] as? String {
-                return powerSource == kIOPSBatteryPowerValue
+                let config = config.withLock { $0 }
+                let enableContextAwareGrid = config.enableContextAwareGrid
+                let gridTolerance = Proportion.percentual(config.gridTolerance)
+                let shouldDisableAnimations = config.disableAnimations
+                let initialFrame = state.withLock { state in
+                    state.nextTransitionFrame ?? state.targetFrame ?? (try? window.getFrame()) ?? .zero
+                }
+                let instruction: WindowTransition = switch nextTransition {
+                    case _ where !enableContextAwareGrid:
+                        nextTransition
+                    case let .moveLeft(breakpoints):
+                        .moveLeft(breakpoints.merge(with: screen.visibleEdges(on: .horizontal)).with(tolerance: gridTolerance))
+                    case let .moveRight(breakpoints):
+                        .moveRight(breakpoints.merge(with: screen.visibleEdges(on: .horizontal)).with(tolerance: gridTolerance))
+                    case let .moveUp(breakpoints):
+                        .moveUp(breakpoints.merge(with: screen.visibleEdges(on: .vertical)).with(tolerance: gridTolerance))
+                    case let .moveDown(breakpoints):
+                        .moveDown(breakpoints.merge(with: screen.visibleEdges(on: .vertical)).with(tolerance: gridTolerance))
+                    case let .resizeLeft(increaseOrDecrease, breakpoints):
+                        .resizeLeft(
+                            increaseOrDecrease,
+                            breakpoints.merge(with: screen.visibleEdges(on: .horizontal)).with(tolerance: gridTolerance)
+                        )
+                    case let .resizeRight(increaseOrDecrease, breakpoints):
+                        .resizeRight(
+                            increaseOrDecrease,
+                            breakpoints.merge(with: screen.visibleEdges(on: .horizontal)).with(tolerance: gridTolerance)
+                        )
+                    case let .resizeTop(increaseOrDecrease, breakpoints):
+                        .resizeTop(
+                            increaseOrDecrease,
+                            breakpoints.merge(with: screen.visibleEdges(on: .vertical)).with(tolerance: gridTolerance)
+                        )
+                    case let .resizeBottom(increaseOrDecrease, breakpoints):
+                        .resizeBottom(
+                            increaseOrDecrease,
+                            breakpoints.merge(with: screen.visibleEdges(on: .vertical)).with(tolerance: gridTolerance)
+                        )
+                    default:
+                        nextTransition
+                }
+                
+                guard
+                    let newTargetFrame = instruction.rect(onScreen: screen, from: initialFrame),
+                    newTargetFrame != initialFrame
+                else {
+                    continue
+                }
+                state.withLock { $0.targetFrame = newTargetFrame }
+                try? await transform(
+                    window: window,
+                    withFrame: initialFrame,
+                    animationDuration: shouldDisableAnimations.evaluateAnimationDuration()
+                )
             }
         }
-
-        return false
     }
-    
-    func evaluateAnimationDuration() -> TimeInterval? {
-        switch self {
-            case .enabled(let timeInterval):
-                timeInterval
-            case .whenOnBattery(let timeInterval):
-                Self.isRunningOnBattery() ? nil : timeInterval
-            case .disabled:
-                nil
-            case .auto(let timeInterval):
-                Self.isRunningOnBattery() || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-                    ? nil
-                    : timeInterval
-        }
-    }
-    
 }
 
-private func easeInOutQuad(_ t: CGFloat) -> CGFloat {
-    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
+/// macOS's standard ease-in-out cubic bezier curve animation.
+/// This matches the system's window management animations.
+private func easeInOutCubic(_ t: Double) -> Double {
+    if t < 0.5 {
+        return 4 * t * t * t
+    } else {
+        let f = t - 1
+        return 1 + 4 * f * f * f
+    }
 }
 
 private extension Task where Success == Never, Failure == Never {
