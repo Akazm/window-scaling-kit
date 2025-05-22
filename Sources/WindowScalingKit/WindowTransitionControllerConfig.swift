@@ -24,14 +24,14 @@ public extension WindowTransitionController {
         
         /// The tolerance value for grid snapping, represented as a decimal between 0 and 1.
         /// A higher value means windows will snap to grid positions more easily.
-        public let gridTolerance: Decimal
+        public var gridTolerance: Decimal
         
         /// Controls when window animations should be disabled.
-        public let disableAnimations: DisableAnimation
+        public var disableAnimations: DisableAnimation
         
         /// When enabled, the grid snapping will take into account the visible edges of the screen
         /// and other contextual information for more intelligent window positioning.
-        public let enableContextAwareGrid: Bool
+        public var enableContextAwareGrid: Bool
         
         /// Creates a new configuration with the specified parameters.
         ///
