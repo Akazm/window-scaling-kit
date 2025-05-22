@@ -8,7 +8,7 @@ private extension Decimal {
 }
 
 // swiftlint disable:identifer_name
-/// Fractional representation of window coordinates. Each property represents a value between 0% and 100% of height/width
+/// Proportional representation of window coordinates. Each property represents a value between 0% and 100% of height/width
 /// of an arbitrary [NSScreen](https://developer.apple.com/documentation/appkit/nsscreen).
 public struct WindowCoordinates: Sendable, Hashable, Codable {
     /// Distance to the left edge
@@ -20,6 +20,7 @@ public struct WindowCoordinates: Sendable, Hashable, Codable {
     /// Height
     public let h: Proportion
 
+    /// Initialize with `.fractional` values
     public init(x: Decimal, y: Decimal, w: Decimal, h: Decimal) {
         self.x = .fractional(x)
         self.y = .fractional(y)
@@ -27,6 +28,7 @@ public struct WindowCoordinates: Sendable, Hashable, Codable {
         self.h = .fractional(h)
     }
     
+    /// Initialize with either `.fraction` or `.percentual`
     public init(x: Proportion, y: Proportion, w: Proportion, h: Proportion) {
         self.x = x
         self.y = y
