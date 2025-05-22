@@ -233,6 +233,14 @@ extension WindowTransitionBreakpoints.Value: Codable {
     
 }
 
+public extension WindowTransitionBreakpoints {
+    
+    static var empty: Self {
+        .init(Array<Self.Value>())
+    }
+    
+}
+
 extension WindowTransitionBreakpoints: Codable {
     
     public func encode(to encoder: any Encoder) throws {
