@@ -7,7 +7,7 @@ public extension WindowTransitionController {
     ///
     /// This struct allows customization of the controller's behavior including grid tolerance,
     /// animation settings, and context-aware grid snapping.
-    struct Config: Sendable, Hashable {
+    struct Config: Sendable, Hashable, Codable {
         
         /// Controls when window animations should be disabled.
         ///
@@ -15,7 +15,7 @@ public extension WindowTransitionController {
         /// - `enabled`: Always enables animations
         /// - `disabled`: Always disables animations
         /// - `auto`: Automatically determines whether to disable animations based on system settings
-        public enum DisableAnimation: Sendable, Hashable {
+        public enum DisableAnimation: Sendable, Hashable, Codable {
             case whenOnBattery(TimeInterval)
             case enabled(TimeInterval)
             case disabled
