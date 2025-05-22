@@ -14,6 +14,7 @@ import Mutex
 /// snapping. It uses accessibility APIs to manipulate windows and provides smooth animations
 /// with easing functions.
 public final class WindowTransitionController: Sendable {
+    
     private struct State {
         var targetFrame: CGRect?
         var nextTransitionFrame: CGRect?
@@ -22,16 +23,14 @@ public final class WindowTransitionController: Sendable {
     private let state: Mutex<State> = .init(.init())
     private let transitionQueue: Mutex<[WindowTransition]> = .init([])
     private let isProcessingTransitions = ManagedAtomic<Bool>(false)
-    public let config: Mutex<Config>
+    public let config: Config
     
     public init(config: Config = .default) {
-        self.config = .init(config)
+        self.config = config
     }
 
     private nonisolated func transform(
-        window: AXWindow,
-        withFrame frame: CGRect,
-        animationDuration duration: TimeInterval?
+        window: AXWindow, withFrame frame: CGRect, animationDuration duration: TimeInterval?
     ) async throws {
         // Compute target frame upfront to avoid sending screen across actor boundaries
         guard let targetFrame = state.withLock({ $0.targetFrame }) else {
@@ -116,14 +115,17 @@ public final class WindowTransitionController: Sendable {
                 clearTransitionState()
                 isProcessingTransitions.store(false, ordering: .relaxed)
             }
-            while let nextTransition = transitionQueue.withLock({ queue in
-                guard !queue.isEmpty else { return nil as WindowTransition? }
-                return queue.removeFirst()
-            }) {
+            while true {
+                let (nextTransition, isConsecutive) = transitionQueue.withLock({ queue in
+                    guard !queue.isEmpty else { return (nil as WindowTransition?, true) }
+                    return (queue.removeFirst(), !queue.isEmpty)
+                })
+                guard let nextTransition else {
+                    break
+                }
                 guard let screen = NSScreen.activeScreen else {
                     continue
                 }
-                let config = config.withLock { $0 }
                 let enableContextAwareGrid = config.enableContextAwareGrid
                 let gridTolerance = Proportion.percentual(config.gridTolerance)
                 let shouldDisableAnimations = config.disableAnimations
@@ -131,16 +133,24 @@ public final class WindowTransitionController: Sendable {
                     state.nextTransitionFrame ?? state.targetFrame ?? (try? window.getFrame()) ?? .zero
                 }
                 let instruction: WindowTransition = switch nextTransition {
-                    case _ where !enableContextAwareGrid:
+                    case _ where !enableContextAwareGrid || isConsecutive:
                         nextTransition
                     case let .moveLeft(breakpoints):
-                        .moveLeft(breakpoints.merge(with: screen.visibleEdges(on: .horizontal)).with(tolerance: gridTolerance))
+                        .moveLeft(
+                            breakpoints.merge(with: screen.visibleEdges(on: .horizontal)).with(tolerance: gridTolerance)
+                        )
                     case let .moveRight(breakpoints):
-                        .moveRight(breakpoints.merge(with: screen.visibleEdges(on: .horizontal)).with(tolerance: gridTolerance))
+                        .moveRight(
+                            breakpoints.merge(with: screen.visibleEdges(on: .horizontal)).with(tolerance: gridTolerance)
+                        )
                     case let .moveUp(breakpoints):
-                        .moveUp(breakpoints.merge(with: screen.visibleEdges(on: .vertical)).with(tolerance: gridTolerance))
+                        .moveUp(
+                            breakpoints.merge(with: screen.visibleEdges(on: .vertical)).with(tolerance: gridTolerance)
+                        )
                     case let .moveDown(breakpoints):
-                        .moveDown(breakpoints.merge(with: screen.visibleEdges(on: .vertical)).with(tolerance: gridTolerance))
+                        .moveDown(
+                            breakpoints.merge(with: screen.visibleEdges(on: .vertical)).with(tolerance: gridTolerance)
+                        )
                     case let .resizeLeft(increaseOrDecrease, breakpoints):
                         .resizeLeft(
                             increaseOrDecrease,
@@ -167,8 +177,7 @@ public final class WindowTransitionController: Sendable {
                 
                 guard
                     let newTargetFrame = instruction.rect(onScreen: screen, from: initialFrame),
-                    newTargetFrame != initialFrame
-                else {
+                    newTargetFrame != initialFrame else {
                     continue
                 }
                 state.withLock { $0.targetFrame = newTargetFrame }
