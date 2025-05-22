@@ -125,6 +125,31 @@ extension WindowTransition: CustomDebugStringConvertible {
 ///   across breakpoints, as well as relative movement to neighboring displays.
 public extension WindowTransition {
     
+    var breakpoints: WindowTransitionBreakpoints {
+        switch self {
+            case .snapToGrid(_, let breakpoints):
+                breakpoints
+            case .moveLeft(let breakpoints):
+                breakpoints
+            case .moveRight(let breakpoints):
+                breakpoints
+            case .moveUp(let breakpoints):
+                breakpoints
+            case .moveDown(let breakpoints):
+                breakpoints
+            case .resizeLeft(_, let breakpoints):
+                breakpoints
+            case .resizeRight(_, let breakpoints):
+                breakpoints
+            case .resizeTop(_, let breakpoints):
+                breakpoints
+            case .resizeBottom(_, let breakpoints):
+                breakpoints
+            default:
+                .init([])
+        }
+    }
+    
     func rect<W: WindowContainer>(
         onScreen screen: W, from currentFrame: CGRect
     ) -> CGRect? where W.This == W {
