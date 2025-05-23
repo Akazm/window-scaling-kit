@@ -10,15 +10,18 @@ public extension WindowTransitionController {
     struct Config: Sendable, Hashable, Codable {
         
         /// Controls when window animations should be disabled.
-        ///
-        /// - `whenOnBattery`: Disables animations when the device is running on battery power
         /// - `enabled`: Always enables animations
         /// - `disabled`: Always disables animations
         /// - `auto`: Automatically determines whether to disable animations based on system settings
         public enum DisableAnimation: Sendable, Hashable, Codable {
+            /// Disables animations when the device is running on battery power, applies provided `TimeInterval` as animation duration otherwise
             case whenOnBattery(TimeInterval)
+            /// Always applies provided `TimeInterval` as animation duration
             case enabled(TimeInterval)
+            /// Disables animations
             case disabled
+            /// Disables animations when the device is running on battery power or 'Reduce motion' is enabled in System Settings, applies provided
+            /// `TimeInterval` as animation duration otherwise
             case auto(TimeInterval)
         }
         
@@ -36,7 +39,7 @@ public extension WindowTransitionController {
         /// Creates a new configuration with the specified parameters.
         ///
         /// - Parameters:
-        ///   - gridTolerance: The tolerance value for grid snapping (0-1)
+        ///   - gridTolerance: The tolerance value for grid snapping
         ///   - disableAnimations: When to disable window animations
         ///   - enableContextAwareGrid: Whether to enable context-aware grid snapping
         public init(
