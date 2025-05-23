@@ -126,7 +126,11 @@ public final class WindowTransitionController: Sendable {
                 guard let screen = NSScreen.activeScreen else {
                     continue
                 }
-                let enableContextAwareGrid = config.enableContextAwareGrid
+                let enableContextAwareGrid = config.enableContextAwareGrid == .disabled
+                    ? false
+                    : config.enableContextAwareGrid == .enabled
+                        ? true
+                        : !isConsecutive
                 let gridTolerance = Proportion.percentual(config.gridTolerance)
                 let shouldDisableAnimations = config.disableAnimations
                 let initialFrame = state.withLock { state in
