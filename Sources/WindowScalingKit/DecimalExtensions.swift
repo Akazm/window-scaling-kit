@@ -2,19 +2,19 @@ import Foundation
 
 extension Double {
     var decimal: Decimal {
-        return Decimal(self)
+        Decimal(self)
     }
 }
 
 extension Float {
     var decimal: Decimal {
-        return Double(self).decimal
+        Double(self).decimal
     }
 }
 
 extension CGFloat {
     var decimal: Decimal {
-        return Double(self).decimal
+        Double(self).decimal
     }
 }
 
@@ -27,7 +27,7 @@ extension Decimal {
     }
 
     var cgFloat: CGFloat {
-        return CGFloat(NSDecimalNumber(decimal: self).doubleValue)
+        CGFloat(NSDecimalNumber(decimal: self).doubleValue)
     }
 }
 
