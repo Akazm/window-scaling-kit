@@ -42,31 +42,45 @@ public struct WindowCoordinates: Sendable, Hashable, Codable {
         onScreen screen: Screen
     ) where Screen.This == Screen {
         let primaryFrame = Screen.primary?.frame ?? .zero
+        
         let upperScreenEdge = primaryFrame.height.decimal
             - screen.frame.height.decimal
             - screen.frame.origin.y.decimal
             + screen.menuBarThickness.decimal
-        let dockWidth = screen.frame.width.decimal - screen.visibleFrame.width.decimal
-        let upperWindowEdge = upperScreenEdge - windowFrame.origin.y.decimal
-        let isDockOnTheLeft = screen.frame.origin.x.decimal != screen.visibleFrame.origin.x.decimal
-        let xDelta = isDockOnTheLeft ? dockWidth : 0.0
-        let screenOriginX = screen.frame.origin.x.decimal
-        let windowOriginX = windowFrame.origin.x.decimal
-        let windowWidth = windowFrame.width.decimal
+        
+        let dockOnLeft  = screen.frame.origin.x.decimal != screen.visibleFrame.origin.x.decimal
+        let dockOnRight = screen.frame.maxX.decimal != screen.visibleFrame.maxX.decimal
+        let dockOnBottom = screen.frame.minY.decimal != screen.visibleFrame.minY.decimal
+
+        let windowWidth  = windowFrame.width.decimal
         let windowHeight = windowFrame.height.decimal
-        let screenWidth = screen.frame.width.decimal
-        let screenHeight = screen.visibleFrame.height.decimal
+
+        let availableWidth: Decimal
+        let horizontalOffset: Decimal
+        if dockOnLeft {
+            availableWidth   = screen.visibleFrame.width.decimal
+            horizontalOffset = windowFrame.origin.x.decimal - screen.visibleFrame.origin.x.decimal
+        } else {
+            availableWidth   = dockOnRight ? screen.visibleFrame.width.decimal : screen.frame.width.decimal
+            horizontalOffset = windowFrame.origin.x.decimal - screen.frame.origin.x.decimal
+        }
+
+        let availableHeight: Decimal
+        let verticalOffset: Decimal
+        if dockOnBottom {
+            availableHeight  = screen.visibleFrame.height.decimal
+            verticalOffset   = upperScreenEdge - windowFrame.origin.y.decimal
+        } else {
+            // dock on left/right or no dock — full visible height
+            availableHeight  = screen.visibleFrame.height.decimal
+            verticalOffset   = upperScreenEdge - windowFrame.origin.y.decimal
+        }
+
         self = .init(
-            x: abs((windowOriginX - screenOriginX - xDelta) / screenWidth).rounded(),
-            y: abs(upperWindowEdge / screenHeight).rounded(),
-            w: min(
-                1.0,
-                abs(windowWidth / (screenWidth - dockWidth)).rounded()
-            ),
-            h: min(
-                1.0,
-                abs(windowHeight / screenHeight).rounded()
-            )
+            x: min(1.0, abs(horizontalOffset / availableWidth).rounded()),
+            y: min(1.0, abs(verticalOffset / availableHeight).rounded()),
+            w: min(1.0, abs(windowWidth / availableWidth).rounded()),
+            h: min(1.0, abs(windowHeight / availableHeight).rounded())
         )
     }
 
@@ -90,8 +104,9 @@ public struct WindowCoordinates: Sendable, Hashable, Codable {
         rect.size.height = (CGFloat(h.fraction) * screenRect.size.height).rounded(.toNearestOrAwayFromZero)
         rect.size.width = (CGFloat(w.fraction) * screenRect.size.width).rounded(.toNearestOrAwayFromZero)
         // Ensure the frame height does not exceed the bottom of `self` or the dock's upper edge
+        let isDockOnTheBottom = screen.frame.origin.y != screen.visibleFrame.origin.y
         let maxHeight = screenRect.maxY - rect.origin.y
-        if rect.size.height > maxHeight {
+        if rect.size.height > maxHeight && isDockOnTheBottom {
             rect.size.height = maxHeight
         }
         return rect
