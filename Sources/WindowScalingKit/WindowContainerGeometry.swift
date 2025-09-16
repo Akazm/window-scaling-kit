@@ -14,13 +14,13 @@ public extension WindowContainer where This == Self {
         }
     }
 
-    @Sendable static func screenContaining(point: NSPoint) -> This? {
+    static func screenContaining(point: NSPoint) -> This? {
         screens.first {
             NSMouseInRect(point, $0.frame, false)
         }
     }
 
-    @Sendable static func screenContaining(rect: CGRect) -> This? {
+    static func screenContaining(rect: CGRect) -> This? {
         var largestPercentageOfRectWithinFrameOfScreen: CGFloat = 0
         var result = Self.main
         for screen in Self.screens {
