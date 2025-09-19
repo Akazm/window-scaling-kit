@@ -50,7 +50,6 @@ public struct WindowCoordinates: Sendable, Hashable, Codable {
         
         let dockOnLeft  = screen.frame.origin.x.decimal != screen.visibleFrame.origin.x.decimal
         let dockOnRight = screen.frame.maxX.decimal != screen.visibleFrame.maxX.decimal
-        let dockOnBottom = screen.frame.minY.decimal != screen.visibleFrame.minY.decimal
 
         let windowWidth  = windowFrame.width.decimal
         let windowHeight = windowFrame.height.decimal
@@ -65,23 +64,18 @@ public struct WindowCoordinates: Sendable, Hashable, Codable {
             horizontalOffset = windowFrame.origin.x.decimal - screen.frame.origin.x.decimal
         }
 
-        let availableHeight: Decimal
-        let verticalOffset: Decimal
-        if dockOnBottom {
-            availableHeight  = screen.visibleFrame.height.decimal
-            verticalOffset   = upperScreenEdge - windowFrame.origin.y.decimal
-        } else {
-            // dock on left/right or no dock — full visible height
-            availableHeight  = screen.visibleFrame.height.decimal
+        let availableHeight = screen.visibleFrame.height.decimal
+        var verticalOffset: Decimal = 0
+        if #unavailable(macOS 26) {
             verticalOffset   = upperScreenEdge - windowFrame.origin.y.decimal
         }
-
-        self = .init(
+        let newValue: WindowCoordinates = .init(
             x: min(1.0, abs(horizontalOffset / availableWidth).rounded()),
             y: min(1.0, abs(verticalOffset / availableHeight).rounded()),
             w: min(1.0, abs(windowWidth / availableWidth).rounded()),
             h: min(1.0, abs(windowHeight / availableHeight).rounded())
         )
+        self = newValue
     }
 
     /// Returns a new `CGRect` with an absolute representation of this matrix on the given `screen`. Using Accessibility APIs, it's `origin` and `size`
