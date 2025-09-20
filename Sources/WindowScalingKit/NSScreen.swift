@@ -3,8 +3,12 @@ import AXKit
 
 extension NSScreen: WindowContainer {
     public var menuBarThickness: CGFloat {
+        var offset = CGFloat(3)
+        if #available(macOS 26, *) {
+            offset = 7
+        }
         let statusBarThickness = NSStatusBar.system.thickness > 0
-            ? NSStatusBar.system.thickness + 3
+            ? NSStatusBar.system.thickness + offset
             : NSStatusBar.system.thickness
         return if #available(macOS 12, *) {
             if let auxiliaryHeight = auxiliaryTopLeftArea?.height {

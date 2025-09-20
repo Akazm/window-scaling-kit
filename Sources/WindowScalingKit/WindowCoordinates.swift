@@ -60,15 +60,12 @@ public struct WindowCoordinates: Sendable, Hashable, Codable {
             availableWidth   = screen.visibleFrame.width.decimal
             horizontalOffset = windowFrame.origin.x.decimal - screen.visibleFrame.origin.x.decimal
         } else {
-            availableWidth   = dockOnRight ? screen.visibleFrame.width.decimal : screen.frame.width.decimal
+            availableWidth = dockOnRight ? screen.visibleFrame.width.decimal : screen.frame.width.decimal
             horizontalOffset = windowFrame.origin.x.decimal - screen.frame.origin.x.decimal
         }
 
         let availableHeight = screen.visibleFrame.height.decimal
-        var verticalOffset: Decimal = 0
-        if #unavailable(macOS 26) {
-            verticalOffset   = upperScreenEdge - windowFrame.origin.y.decimal
-        }
+        var verticalOffset: Decimal = upperScreenEdge - windowFrame.origin.y.decimal
         let newValue: WindowCoordinates = .init(
             x: min(1.0, abs(horizontalOffset / availableWidth).rounded()),
             y: min(1.0, abs(verticalOffset / availableHeight).rounded()),
