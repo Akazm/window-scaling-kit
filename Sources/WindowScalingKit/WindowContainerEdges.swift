@@ -49,9 +49,14 @@ private extension CGRect {
 
 public extension WindowContainer where Self.This == Self {
     /// Returns edges of all windows as relative coordinates (values between 0 and 100)
-    func visibleEdges(on axes: WindowAxis) -> Set<WindowTransitionBreakpoints.Value> {
+    ///
+    /// - Parameter activeWindow: The frame of the focused window, whose own edges are left out. Read
+    ///   from the window when omitted, which costs two accessibility round trips.
+    func visibleEdges(
+        on axes: WindowAxis, excluding activeWindow: CGRect? = nil
+    ) -> Set<WindowTransitionBreakpoints.Value> {
         guard let screenHeight = Self.screens.first?.frame.height,
-              let activeWindow = try? AXWindow.focusedWindow()?.getFrame() else {
+              let activeWindow = activeWindow ?? (try? AXWindow.focusedWindow()?.getFrame()) else {
             return []
         }
         let cgWindows = CGWindowInfo.from([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)

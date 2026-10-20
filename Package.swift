@@ -44,6 +44,10 @@ let package = Package(
                     condition: .when(platforms: [.macOS])
                 )
             ]
+        ),
+        .testTarget(
+            name: "WindowScalingKitTests",
+            dependencies: ["WindowScalingKit"]
         )
     ]
 )
