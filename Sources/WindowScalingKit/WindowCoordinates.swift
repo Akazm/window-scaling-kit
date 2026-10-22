@@ -41,13 +41,8 @@ public struct WindowCoordinates: Sendable, Hashable, Codable {
         ofWindowFrame windowFrame: CGRect,
         onScreen screen: Screen
     ) where Screen.This == Screen {
-        let primaryFrame = Screen.primary?.frame ?? .zero
-        
-        let upperScreenEdge = primaryFrame.height.decimal
-            - screen.frame.height.decimal
-            - screen.frame.origin.y.decimal
-            + screen.menuBarThickness.decimal
-        
+        let upperScreenEdge = screen.axVisibleFrame.minY.decimal
+
         let dockOnLeft  = screen.frame.origin.x.decimal != screen.visibleFrame.origin.x.decimal
         let dockOnRight = screen.frame.maxX.decimal != screen.visibleFrame.maxX.decimal
 
@@ -80,24 +75,19 @@ public struct WindowCoordinates: Sendable, Hashable, Codable {
     public func rect<Screen: WindowContainer>(
         forScreen screen: Screen
     ) -> CGRect where Screen.This == Screen {
-        let primaryScreen = Screen.primary
-        let screenRect = screen.visibleFrame
+        let screenRect = screen.axVisibleFrame
         var rect = CGRect()
         rect.origin = CGPoint()
         rect.origin.x = screenRect.origin.x
             + (screenRect.size.width * CGFloat(x.fraction)).rounded(.toNearestOrAwayFromZero)
-        rect.origin.y = (primaryScreen?.frame ?? .zero).height
-            - screen.frame.height
-            - screen.frame.origin.y
-            + screen.menuBarThickness
+        rect.origin.y = screenRect.origin.y
             + (CGFloat(y.fraction) * screenRect.size.height).rounded(.toNearestOrAwayFromZero)
         rect.size = CGSize()
         rect.size.height = (CGFloat(h.fraction) * screenRect.size.height).rounded(.toNearestOrAwayFromZero)
         rect.size.width = (CGFloat(w.fraction) * screenRect.size.width).rounded(.toNearestOrAwayFromZero)
-        // Ensure the frame height does not exceed the bottom of `self` or the dock's upper edge
-        let isDockOnTheBottom = screen.frame.origin.y != screen.visibleFrame.origin.y
+        // Ensure the frame height does not exceed the bottom of `screen` or the dock's upper edge
         let maxHeight = screenRect.maxY - rect.origin.y
-        if rect.size.height > maxHeight && isDockOnTheBottom {
+        if rect.size.height > maxHeight {
             rect.size.height = maxHeight
         }
         return rect

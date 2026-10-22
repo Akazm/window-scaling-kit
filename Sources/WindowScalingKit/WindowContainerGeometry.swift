@@ -14,6 +14,18 @@ public extension WindowContainer where This == Self {
         }
     }
 
+    /// The `visibleFrame` in accessibility coordinates: origin at the top left of the primary screen, `y`
+    /// growing downwards, as with the window frames read and written over the accessibility API.
+    var axVisibleFrame: CGRect {
+        let primaryHeight = (Self.primary?.frame ?? .zero).height
+        return CGRect(
+            x: visibleFrame.minX,
+            y: primaryHeight - visibleFrame.maxY,
+            width: visibleFrame.width,
+            height: visibleFrame.height
+        )
+    }
+
     static func screenContaining(point: NSPoint) -> This? {
         screens.first {
             NSMouseInRect(point, $0.frame, false)

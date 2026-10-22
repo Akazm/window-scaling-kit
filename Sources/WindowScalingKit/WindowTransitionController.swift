@@ -534,17 +534,10 @@ private extension WindowTransitionController {
     /// itself fits into it. Intermediate frames are held within it so that a spring overshooting into a
     /// screen edge does not get pushed around by AppKit's own constraints for a frame or two.
     static func visibleBounds(around frame: CGRect) -> CGRect? {
-        guard let screen = NSScreen.screenContaining(rect: frame),
-              let primaryHeight = NSScreen.primary?.frame.height else {
+        guard let screen = NSScreen.screenContaining(rect: frame), NSScreen.primary != nil else {
             return nil
         }
-        let visible = screen.visibleFrame
-        let bounds = CGRect(
-            x: visible.minX,
-            y: primaryHeight - visible.maxY,
-            width: visible.width,
-            height: visible.height
-        )
+        let bounds = screen.axVisibleFrame
         return bounds.insetBy(dx: -1, dy: -1).contains(frame) ? bounds : nil
     }
 
