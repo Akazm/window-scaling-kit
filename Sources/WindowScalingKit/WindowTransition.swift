@@ -150,10 +150,16 @@ public extension WindowTransition {
         }
     }
     
+    /// - Parameters:
+    ///   - screen: The screen or display the window is currently on
+    ///   - currentFrame: The window's frame before the transition
+    ///   - minimumSize: The smallest size the window takes. Resizes skip breakpoints that would leave it smaller, and
+    ///     never leave it without width or height; when no breakpoint fits, the result is `nil`.
     func rect<W: WindowContainer>(
-        onScreen screen: W, from currentFrame: CGRect
+        onScreen screen: W, from currentFrame: CGRect, minimumSize: CGSize = .zero
     ) -> CGRect? where W.This == W {
         let currentCoordinates = WindowCoordinates(ofWindowFrame: currentFrame, onScreen: screen)
+        let minimum = MinimumExtent(minimumSize, on: screen)
         switch self {
             case let .absolute(value):
                 return value.rect(forScreen: screen)
@@ -198,7 +204,7 @@ public extension WindowTransition {
                     breakpoints: breakpoints.on(axis: .horizontal),
                     screen: screen,
                     currentCoordinates: currentCoordinates,
-                    currentFrame: currentFrame
+                    minimum: minimum
                 )
             case let .resizeRight(direction, breakpoints):
                 return handleResizeRight(
@@ -206,14 +212,15 @@ public extension WindowTransition {
                     breakpoints: breakpoints.on(axis: .horizontal),
                     screen: screen,
                     currentCoordinates: currentCoordinates,
-                    currentFrame: currentFrame)
+                    minimum: minimum
+                )
             case let .resizeTop(direction, breakpoints):
                 return handleResizeTop(
                     direction: direction,
                     breakpoints: breakpoints.on(axis: .vertical),
                     screen: screen,
                     currentCoordinates: currentCoordinates,
-                    currentFrame: currentFrame
+                    minimum: minimum
                 )
             case let .resizeBottom(direction, breakpoints):
                 return handleResizeBottom(
@@ -221,7 +228,7 @@ public extension WindowTransition {
                     breakpoints: breakpoints.on(axis: .vertical),
                     screen: screen,
                     currentCoordinates: currentCoordinates,
-                    currentFrame: currentFrame
+                    minimum: minimum
                 )
             case let .snapToGrid(behavior, breakpoints):
                 return handleSnapToGrid(
@@ -347,7 +354,7 @@ public extension WindowTransition {
         breakpoints: WindowTransitionBreakpoints,
         screen: W,
         currentCoordinates: WindowCoordinates,
-        currentFrame: CGRect
+        minimum: MinimumExtent
     ) -> CGRect? where W.This == W {
         let closestCoordinate = currentCoordinates.closestAnchor(
             along: breakpoints,
@@ -357,7 +364,7 @@ public extension WindowTransition {
                 case .maxX:
                     false
                 default:
-                    true
+                    currentCoordinates.maxX.percentage - anchor.breakpoint.percentage >= minimum.width
             }
         }
         guard let closestCoordinate else {
@@ -367,13 +374,13 @@ public extension WindowTransition {
             .setting(.x(closestCoordinate.breakpoint, mode: .resize))
             .rect(forScreen: screen)
     }
-    
+
     private func handleResizeRight<W: WindowContainer>(
         direction: ResizeBehavior,
         breakpoints: WindowTransitionBreakpoints,
         screen: W,
         currentCoordinates: WindowCoordinates,
-        currentFrame: CGRect
+        minimum: MinimumExtent
     ) -> CGRect? where W.This == W {
         let closestCoordinate = currentCoordinates.closestAnchor(
             along: breakpoints,
@@ -383,7 +390,7 @@ public extension WindowTransition {
                 case .x:
                     false
                 default:
-                    true
+                    anchor.breakpoint.percentage - currentCoordinates.x.percentage >= minimum.width
             }
         }
         guard let closestCoordinate else {
@@ -393,13 +400,13 @@ public extension WindowTransition {
             .setting(.maxX(closestCoordinate.breakpoint, mode: .resize))
             .rect(forScreen: screen)
     }
-    
+
     private func handleResizeTop<W: WindowContainer>(
         direction: ResizeBehavior,
         breakpoints: WindowTransitionBreakpoints,
         screen: W,
         currentCoordinates: WindowCoordinates,
-        currentFrame: CGRect
+        minimum: MinimumExtent
     ) -> CGRect? where W.This == W {
         let closestCoordinate = currentCoordinates.closestAnchor(
             along: breakpoints,
@@ -409,7 +416,7 @@ public extension WindowTransition {
                 case .maxY:
                     false
                 default:
-                    true
+                    currentCoordinates.maxY.percentage - anchor.breakpoint.percentage >= minimum.height
             }
         }
         guard let closestCoordinate else {
@@ -419,13 +426,13 @@ public extension WindowTransition {
             .setting(.y(closestCoordinate.breakpoint, mode: .resize))
             .rect(forScreen: screen)
     }
-    
+
     private func handleResizeBottom<W: WindowContainer>(
         direction: ResizeBehavior,
         breakpoints: WindowTransitionBreakpoints,
         screen: W,
         currentCoordinates: WindowCoordinates,
-        currentFrame: CGRect
+        minimum: MinimumExtent
     ) -> CGRect? where W.This == W {
         let closestCoordinate = currentCoordinates.closestAnchor(
             along: breakpoints,
@@ -435,7 +442,7 @@ public extension WindowTransition {
                 case .y:
                     false
                 default:
-                    true
+                    anchor.breakpoint.percentage - currentCoordinates.y.percentage >= minimum.height
             }
         }
         guard let closestCoordinate else {
@@ -513,5 +520,19 @@ public extension WindowTransition {
         }
         return newCoordinates.rect(forScreen: screen)
     }
-    
+
+}
+
+/// The smallest a resize may leave a window, as percentages of the screen's visible width and height
+private struct MinimumExtent {
+    let width: Decimal
+    let height: Decimal
+
+    /// - Parameter size: The window's own minimum size; a resize leaves at least a point either way, so that an edge
+    ///   never lands on the opposite one
+    init<W: WindowContainer>(_ size: CGSize, on screen: W) where W.This == W {
+        let visible = screen.visibleFrame.size
+        width = max(size.width, 1).decimal / max(visible.width, 1).decimal * 100
+        height = max(size.height, 1).decimal / max(visible.height, 1).decimal * 100
+    }
 }

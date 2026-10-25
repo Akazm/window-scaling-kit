@@ -267,6 +267,10 @@ public final class WindowTransitionController: Sendable {
         var targetFrame: CGRect?
         /// The last frame written to the window, i.e. where it visually is.
         var nextTransitionFrame: CGRect?
+        /// The window's own frame when the run began, and every transition resolved since, as resolved: what
+        /// leads to ``targetFrame``, for resolving again once the window turns out to have a minimum size.
+        var runStart: CGRect?
+        var runInstructions: [WindowTransition] = []
     }
 
     /// How close to its current target the window has to be, as a fraction of the last step, before the
@@ -275,6 +279,9 @@ public final class WindowTransitionController: Sendable {
     private static let repeatFoldThreshold = 0.5
 
     private let state: Mutex<State> = .init(.init())
+    /// The smallest size each window has been found to take, by window number. Applications keep windows from
+    /// getting smaller than their minimum size, which the accessibility API does not tell.
+    private let minimumSizes: Mutex<[CGWindowID: CGSize]> = .init([:])
     private let transitionQueue: Mutex<[QueuedTransition]> = .init([])
     private let isProcessingTransitions = ManagedAtomic<Bool>(false)
     public let config: Config
@@ -297,8 +304,7 @@ public final class WindowTransitionController: Sendable {
 
     private func clearTransitionState() {
         state.withLock { state in
-            state.targetFrame = nil
-            state.nextTransitionFrame = nil
+            state = .init()
         }
     }
 
@@ -505,6 +511,13 @@ private extension WindowTransitionController {
                 return writer
             }
         }
+        if let corrected = correction(afterWriting: target, to: window) {
+            writer = await MainActor.run { [writer, corrected] in
+                var writer = writer
+                writer.write(corrected, isFinal: true)
+                return writer
+            }
+        }
         await MainActor.run { [writer] in writer.finish() }
     }
 
@@ -522,12 +535,76 @@ private extension WindowTransitionController {
             writer = await MainActor.run { [current, target] in
                 var current = current
                 current.write(target, isFinal: true)
+                if let corrected = self.correction(afterWriting: target, to: window) {
+                    current.write(corrected, isFinal: true)
+                }
                 return current
             }
         }
         if let writer {
             await MainActor.run { [writer] in writer.finish() }
         }
+    }
+
+    /// Checks the window took `target`, just written as final. Should its application have kept it larger, its
+    /// minimum size is remembered, and the run's transitions are resolved again from where the run began with
+    /// that minimum: the window then stops at the last breakpoint it fits, or stays where it was.
+    ///
+    /// - Returns: The frame to write instead, or `nil` when the window is where it was asked to go
+    nonisolated func correction(afterWriting target: CGRect, to window: AXWindow) -> CGRect? {
+        guard let written = (try? window.getFrame()) ?? nil else {
+            return nil
+        }
+        let isWider = written.width > target.width + 1
+        let isTaller = written.height > target.height + 1
+        guard isWider || isTaller else {
+            return nil
+        }
+        let windowNumber = window.windowNumber
+        let minimumSize = minimumSizes.withLock { sizes in
+            var size = sizes[windowNumber] ?? .zero
+            if isWider {
+                size.width = max(size.width, written.width)
+            }
+            if isTaller {
+                size.height = max(size.height, written.height)
+            }
+            sizes[windowNumber] = size
+            return size
+        }
+        guard let (start, instructions) = state.withLock({ state in state.runStart.map { ($0, state.runInstructions) } }) else {
+            return nil
+        }
+        let corrected = resolve(instructions, from: start, minimumSize: minimumSize)
+        state.withLock { state in
+            state.targetFrame = corrected
+            state.nextTransitionFrame = corrected
+        }
+        return corrected
+    }
+
+    /// The smallest size `window` has been found to take, zero while it is not known
+    nonisolated func minimumSize(of window: AXWindow) -> CGSize {
+        let windowNumber = window.windowNumber
+        return minimumSizes.withLock { $0[windowNumber] } ?? .zero
+    }
+
+    /// Where `instructions`, as resolved before, lead from `frame` for a window no smaller than `minimumSize`
+    nonisolated func resolve(_ instructions: [WindowTransition], from frame: CGRect, minimumSize: CGSize) -> CGRect {
+        guard var screen = NSScreen.screenContaining(rect: frame) else {
+            return frame
+        }
+        var target = frame
+        for instruction in instructions {
+            guard let next = instruction.rect(onScreen: screen, from: target, minimumSize: minimumSize) else {
+                continue
+            }
+            target = next
+            if case .moveToScreen = instruction, let landed = NSScreen.screenContaining(rect: target) {
+                screen = landed
+            }
+        }
+        return target
     }
 
     /// The visible area of the screen holding `frame`, in accessibility coordinates, as far as `frame`
@@ -548,11 +625,15 @@ private extension WindowTransitionController {
     nonisolated func applyPendingTransitions(
         _ pending: [WindowTransition], ofWindow window: AXWindow, isConsecutive: Bool
     ) -> (origin: CGRect, target: CGRect)? {
-        let (pendingTarget, visualFrame) = state.withLock { ($0.targetFrame, $0.nextTransitionFrame) }
+        let (pendingTarget, visualFrame, runInstructions) = state.withLock {
+            ($0.targetFrame, $0.nextTransitionFrame, $0.runInstructions)
+        }
         // Read the window outside the lock: `getFrame` is a blocking cross process call.
         guard let initialFrame = pendingTarget ?? (try? window.getFrame()) else {
             return nil
         }
+        let minimumSize = minimumSize(of: window)
+        var instructions = pendingTarget == nil ? [] : runInstructions
         // Only the first transition of a run has to work out which screen the window is on. From then on
         // the pending target identifies it for free, which also keeps `.moveToScreen` chaining correct.
         guard var screen = NSScreen.screenContaining(rect: initialFrame) else {
@@ -573,7 +654,8 @@ private extension WindowTransitionController {
             let instruction = useContextAwareGrid
                 ? contextAware(transition, on: screen, edges: &edgeCache)
                 : transition
-            guard let next = instruction.rect(onScreen: screen, from: target), next != target else {
+            instructions.append(instruction)
+            guard let next = instruction.rect(onScreen: screen, from: target, minimumSize: minimumSize), next != target else {
                 continue
             }
             target = next
@@ -585,7 +667,13 @@ private extension WindowTransitionController {
         guard target != initialFrame else {
             return nil
         }
-        state.withLock { $0.targetFrame = target }
+        state.withLock { state in
+            state.targetFrame = target
+            if pendingTarget == nil {
+                state.runStart = initialFrame
+            }
+            state.runInstructions = instructions
+        }
         return (origin: origin, target: target)
     }
 

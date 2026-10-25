@@ -60,10 +60,11 @@ public struct WindowCoordinates: Sendable, Hashable, Codable {
         }
 
         let availableHeight = screen.visibleFrame.height.decimal
-        var verticalOffset: Decimal = upperScreenEdge - windowFrame.origin.y.decimal
+        let verticalOffset: Decimal = windowFrame.origin.y.decimal - upperScreenEdge
+        // A frame reaching past the left or upper edge, say into the menu bar, starts at the edge
         let newValue: WindowCoordinates = .init(
-            x: min(1.0, abs(horizontalOffset / availableWidth).rounded()),
-            y: min(1.0, abs(verticalOffset / availableHeight).rounded()),
+            x: min(1.0, max(0, horizontalOffset / availableWidth).rounded()),
+            y: min(1.0, max(0, verticalOffset / availableHeight).rounded()),
             w: min(1.0, abs(windowWidth / availableWidth).rounded()),
             h: min(1.0, abs(windowHeight / availableHeight).rounded())
         )
@@ -76,21 +77,22 @@ public struct WindowCoordinates: Sendable, Hashable, Codable {
         forScreen screen: Screen
     ) -> CGRect where Screen.This == Screen {
         let screenRect = screen.axVisibleFrame
-        var rect = CGRect()
-        rect.origin = CGPoint()
-        rect.origin.x = screenRect.origin.x
-            + (screenRect.size.width * CGFloat(x.fraction)).rounded(.toNearestOrAwayFromZero)
-        rect.origin.y = screenRect.origin.y
-            + (CGFloat(y.fraction) * screenRect.size.height).rounded(.toNearestOrAwayFromZero)
-        rect.size = CGSize()
-        rect.size.height = (CGFloat(h.fraction) * screenRect.size.height).rounded(.toNearestOrAwayFromZero)
-        rect.size.width = (CGFloat(w.fraction) * screenRect.size.width).rounded(.toNearestOrAwayFromZero)
-        // Ensure the frame height does not exceed the bottom of `screen` or the dock's upper edge
-        let maxHeight = screenRect.maxY - rect.origin.y
-        if rect.size.height > maxHeight {
-            rect.size.height = maxHeight
-        }
-        return rect
+        // Each edge is rounded on its own, rather than origin and size, so that the edge a resize keeps stays exactly
+        // where it was instead of drifting a point at a time
+        let left = (screenRect.size.width * CGFloat(x.fraction)).rounded(.toNearestOrAwayFromZero)
+        let right = (screenRect.size.width * CGFloat(maxX.fraction)).rounded(.toNearestOrAwayFromZero)
+        let top = (screenRect.size.height * CGFloat(y.fraction)).rounded(.toNearestOrAwayFromZero)
+        // Ensure the frame does not exceed the bottom of `screen` or the dock's upper edge
+        let bottom = min(
+            (screenRect.size.height * CGFloat(maxY.fraction)).rounded(.toNearestOrAwayFromZero),
+            screenRect.size.height
+        )
+        return CGRect(
+            x: screenRect.origin.x + left,
+            y: screenRect.origin.y + top,
+            width: right - left,
+            height: bottom - top
+        )
     }
     
     /// The maximum X position (`x + w`), representing the right edge of the window in fractional units.

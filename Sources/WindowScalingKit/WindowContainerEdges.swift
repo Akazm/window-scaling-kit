@@ -70,9 +70,12 @@ public extension WindowContainer where Self.This == Self {
         let commonTooltipHeight: CGFloat = 20
         // The common layer for 'normal' windows
         let commonWindowLayer = 0
+        // The caller's own windows, such as a window manager's overlays, are not windows to snap to
+        let ownProcess = ProcessInfo.processInfo.processIdentifier
         let cgWindowListFrames = cgWindows
             .compactMap { window -> CGWindowInfo? in
                 guard
+                    window.ownerPID != ownProcess,
                     window.windowAlpha == 1.0,
                     window.windowLayer == commonWindowLayer,
                     window.bounds.height > commonTooltipHeight else {
